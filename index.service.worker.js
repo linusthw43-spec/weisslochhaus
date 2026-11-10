@@ -4,7 +4,7 @@
 // Incrementing CACHE_VERSION will kick off the install event and force
 // previously cached resources to be updated from the network.
 /** @type {string} */
-const CACHE_VERSION = '1794338034|4469408';
+const CACHE_VERSION = '1794339092|4462892';
 /** @type {string} */
 const CACHE_PREFIX = 'Weißlochhaus-sw-cache-';
 const CACHE_NAME = CACHE_PREFIX + CACHE_VERSION;
