@@ -115,7 +115,7 @@
   <div id="stand"></div>
 
   <script>
-    var BUILD = "0.1.0 · 11.11.2026 19:46";
+    var BUILD = "0.1.0 · 11.11.2026 20:15";
     var PIN_HASH = "0f9305fb9daaca6e97608d3bdcf8961b59b080bdffe35613e1deade56823785f";
     var MERKER = "wlh_frei";
     var mobil = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
@@ -234,9 +234,9 @@
       var buildUrl = "Build";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/7a12c705b3f31ed2eeacbbc7aa58e40f.data",
-        frameworkUrl: buildUrl + "/6b339385b4f75866e6d7af4a768b9bbd.framework.js",
-        codeUrl: buildUrl + "/7c3875974a975fed10636d2460437e52.wasm",
+        dataUrl: buildUrl + "/2c78b5581943989122229e975b7a637f.data",
+        frameworkUrl: buildUrl + "/d9546723e9445be36feaebf98d477975.framework.js",
+        codeUrl: buildUrl + "/f0a406cba20eb5647d5a70d18c3918fe.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "Weisslochhaus",
         productName: "Weisslochhaus",
@@ -250,7 +250,7 @@
       config.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
       var skript = document.createElement("script");
-      skript.src = buildUrl + "/de79209e14ec467e31ef5a360bef0019.loader.js";
+      skript.src = buildUrl + "/2faf52a825345f29e42703599bc4104c.loader.js";
       skript.onerror = function () { zeigeFehler("Die Spieldateien konnten nicht geladen werden. Internet prüfen und neu laden."); };
       skript.onload = function () {
         createUnityInstance(canvas, config, function (fortschritt) {
