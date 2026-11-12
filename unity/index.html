@@ -69,6 +69,13 @@
       #tasten button.leer { display: none; }
     }
 
+    /* Startbild und Intro-Video */
+    #start { z-index: 28; cursor: pointer; }
+    #start .gross { font-size: 18px; margin-top: 26px; padding: 14px 30px; border-radius: 14px; background: #e9a23b; color: #1a1408; font-weight: 600; }
+    #film { z-index: 27; background: #000; padding: 0; }
+    #film video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+    #film p { position: absolute; right: 16px; bottom: 14px; margin: 0; font-size: 13px; opacity: 0.6; }
+
     /* Hinweis: Handy quer halten */
     #dreh { z-index: 15; background: rgba(13, 20, 32, 0.92); }
     #dreh .symbol { font-size: 54px; line-height: 1; margin-bottom: 12px; }
@@ -87,7 +94,7 @@
 
   <div id="lade" class="schicht">
     <h1>Weißlochhaus</h1>
-    <p class="klein">Unity-Testversion</p>
+    <p class="klein">Die Klassenfahrt in den Schwarzwald</p>
     <div id="balken"><div id="balken-voll"></div></div>
     <p id="prozent">0 %</p>
     <p class="klein" id="lade-text">Lädt … beim ersten Mal dauert das etwas.</p>
@@ -105,6 +112,17 @@
     </div>
   </div>
 
+  <div id="start" class="schicht">
+    <h1>Weißlochhaus</h1>
+    <p class="klein">Die Klassenfahrt in den Schwarzwald</p>
+    <div class="gross">Tippen zum Starten</div>
+  </div>
+
+  <div id="film" class="schicht">
+    <video id="intro" playsinline webkit-playsinline preload="auto"></video>
+    <p>Tippen zum Überspringen</p>
+  </div>
+
   <div id="dreh" class="schicht">
     <div class="symbol">⟳</div>
     <h1>Bitte Handy quer halten</h1>
@@ -115,7 +133,7 @@
   <div id="stand"></div>
 
   <script>
-    var BUILD = "0.1.0 · 11.11.2026 20:15";
+    var BUILD = "0.3.0 · 12.11.2026 13:58";
     var PIN_HASH = "0f9305fb9daaca6e97608d3bdcf8961b59b080bdffe35613e1deade56823785f";
     var MERKER = "wlh_frei";
     var mobil = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
@@ -228,19 +246,58 @@
     document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
     canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
 
+    // ---------- Startbild und Intro-Video ----------
+    // Erst einmal tippen (sonst erlaubt der Browser keinen Ton), dann läuft das Intro.
+    // Währenddessen lädt das Spiel schon im Hintergrund. Tippen oder eine Taste überspringt das Video.
+    function startBild() {
+      zeig("start", true);
+      var los = false;
+      function beginne() {
+        if (los) return;
+        los = true;
+        zeig("start", false);
+        spieleFilm();
+        starteSpiel();
+      }
+      document.getElementById("start").addEventListener("pointerup", beginne);
+      window.addEventListener("keydown", function (e) {
+        if (!los && document.getElementById("start").classList.contains("an") && (e.key === "Enter" || e.key === " ")) beginne();
+      });
+    }
+    function spieleFilm() {
+      var schicht = document.getElementById("film"), video = document.getElementById("intro");
+      var vorbei = false, seit = Date.now();
+      function ende() {
+        if (vorbei) return;
+        vorbei = true;
+        try { video.pause(); video.removeAttribute("src"); video.load(); } catch (e) {}
+        zeig("film", false);
+        canvas.focus();
+      }
+      function ueberspringen() { if (Date.now() - seit > 700) ende(); }
+      zeig("film", true);
+      video.addEventListener("ended", ende);
+      video.addEventListener("error", ende);
+      schicht.addEventListener("pointerup", ueberspringen);
+      window.addEventListener("keydown", function () { if (!vorbei) ueberspringen(); });
+      video.src = "intro.mp4";
+      var spiel = video.play();
+      if (spiel && spiel.catch) spiel.catch(ende);
+    }
+
     // ---------- Unity starten ----------
     function starteSpiel() {
       zeig("lade", true);
       var buildUrl = "Build";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/2c78b5581943989122229e975b7a637f.data",
-        frameworkUrl: buildUrl + "/d9546723e9445be36feaebf98d477975.framework.js",
-        codeUrl: buildUrl + "/f0a406cba20eb5647d5a70d18c3918fe.wasm",
+        dataUrl: buildUrl + "/c39601a8f46b0a8cfe5e4a4a33a251ba.data",
+        frameworkUrl: buildUrl + "/146af8038b9135dc3edf9cc01a68c473.framework.js",
+        codeUrl: buildUrl + "/97ec9775a7a18dbe22d7da465ff958f2.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "Weisslochhaus",
         productName: "Weisslochhaus",
-        productVersion: "0.1.0",
+        productVersion: "0.3.0",
         showBanner: function (msg, type) {
           if (type === "error") zeigeFehler(msg);
           else console.warn(msg);
@@ -250,7 +307,7 @@
       config.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
       var skript = document.createElement("script");
-      skript.src = buildUrl + "/2faf52a825345f29e42703599bc4104c.loader.js";
+      skript.src = buildUrl + "/4c283d728c4568bd1147a1099843a66b.loader.js";
       skript.onerror = function () { zeigeFehler("Die Spieldateien konnten nicht geladen werden. Internet prüfen und neu laden."); };
       skript.onload = function () {
         createUnityInstance(canvas, config, function (fortschritt) {
@@ -272,8 +329,8 @@
 
     pruefeUpdate().then(function (laedtNeu) {
       if (laedtNeu) return;
-      if (istFrei()) starteSpiel();
-      else pinAbfrage().then(starteSpiel);
+      if (istFrei()) startBild();
+      else pinAbfrage().then(startBild);
     });
   </script>
 </body>
