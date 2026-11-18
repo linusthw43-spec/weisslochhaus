@@ -110,6 +110,27 @@
     #film video { width: 100%; height: 100%; object-fit: contain; background: #000; }
     #film p { position: absolute; right: 16px; bottom: 14px; margin: 0; font-size: 15px; opacity: 0.75; }
 
+    /* Namen eingeben (du und zwei Freunde) */
+    #namen { z-index: 26; background: rgba(10, 9, 7, 0.8); }
+    #namen h1 { font-size: 30px; }
+    #namen label { display: block; font-size: 15px; opacity: 0.85; margin: 10px 0 3px; text-align: left; }
+    #namen input {
+      width: min(62vw, 300px); box-sizing: border-box; padding: 8px 12px; font: inherit; font-size: 20px; color: #fff;
+      background: #1d1d20; border: 2px solid #55555a; border-radius: 3px; outline: none; -webkit-user-select: text; user-select: text;
+    }
+    #namen input:focus { border-color: var(--akzent); }
+    #namen button {
+      margin-top: 16px; padding: 9px 40px; border: 0; font-family: "Dick", sans-serif; font-style: italic; font-size: 24px;
+      text-transform: uppercase; background: var(--akzent); color: #0b0b0c; transform: skewX(-10deg); cursor: pointer; touch-action: manipulation;
+    }
+    #namen .zeile { display: flex; gap: 12px; }
+    @media (orientation: landscape) and (max-height: 430px) {
+      #namen h1 { font-size: 22px; }
+      #namen label { margin: 4px 0 2px; font-size: 13px; }
+      #namen input { width: min(27vw, 190px); padding: 5px 9px; font-size: 17px; }
+      #namen button { margin-top: 9px; padding: 6px 30px; font-size: 20px; }
+    }
+
     /* Hinweis: Handy quer halten */
     #dreh { z-index: 15; background: rgba(10, 9, 7, 0.94); }
     #dreh .kasten { animation-name: rein-rechts; }
@@ -153,6 +174,19 @@
     <div class="gross">Tippen zum Starten</div>
   </div></div>
 
+  <div id="namen" class="schicht"><div class="kasten">
+    <h1>Wer bist du?</h1>
+    <div class="zeile">
+      <div><label for="name-ich">Dein Vorname</label><input id="name-ich" maxlength="14" autocomplete="off" autocapitalize="words" enterkeyhint="next"></div>
+    </div>
+    <div class="zeile">
+      <div><label for="name-f1">Freund oder Freundin 1</label><input id="name-f1" maxlength="14" autocomplete="off" autocapitalize="words" enterkeyhint="next"></div>
+      <div><label for="name-f2">Freund oder Freundin 2</label><input id="name-f2" maxlength="14" autocomplete="off" autocapitalize="words" enterkeyhint="done"></div>
+    </div>
+    <p class="klein">Die Namen bleiben nur auf diesem Gerät.</p>
+    <button id="namen-los">Los</button>
+  </div></div>
+
   <div id="film" class="schicht">
     <video id="intro" playsinline webkit-playsinline preload="auto"></video>
     <p>Tippen zum Überspringen</p>
@@ -168,7 +202,7 @@
   <div id="stand"></div>
 
   <script>
-    var BUILD = "0.10.1 · 18.11.2026 18:47";
+    var BUILD = "0.11.0 · 18.11.2026 19:30";
     var PIN_HASH = "0f9305fb9daaca6e97608d3bdcf8961b59b080bdffe35613e1deade56823785f";
     var MERKER = "wlh_frei";
     var mobil = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
@@ -320,19 +354,52 @@
       if (spiel && spiel.catch) spiel.catch(ende);
     }
 
+    // ---------- Namen eingeben ----------
+    // Das Spiel ruft wlhFrageNamen(), wenn es die drei Namen braucht (neues Spiel oder "Namen ändern").
+    // Sie werden nur hier im Browser gespeichert. Danach geht "ich|freund1|freund2" zurück ans Spiel.
+    window.wlhFrageNamen = function () {
+      var felder = ["name-ich", "name-f1", "name-f2"].map(function (id) { return document.getElementById(id); });
+      var alt = "";
+      try { alt = localStorage.getItem("wlh_namen") || ""; } catch (e) {}
+      alt.split("|").forEach(function (n, i) { if (felder[i]) felder[i].value = n; });
+      zeig("namen", true);
+      try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) {}
+      if (!mobil) felder[0].focus();
+      function fertig() {
+        var text = felder.map(function (f) { return f.value.replace(/[|{}:]/g, "").trim(); }).join("|");
+        try { localStorage.setItem("wlh_namen", text); } catch (e) {}
+        felder.forEach(function (f) { f.blur(); });
+        zeig("namen", false);
+        document.getElementById("namen-los").removeEventListener("click", fertig);
+        window.removeEventListener("keydown", taste, true);
+        canvas.focus();
+        if (window.unityInstanz) window.unityInstanz.SendMessage("Spiel", "NamenFertig", text);
+      }
+      function taste(e) {
+        // Tasten gehören jetzt den Eingabefeldern, nicht dem Spiel
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          var i = felder.indexOf(document.activeElement);
+          if (i >= 0 && i < 2) felder[i + 1].focus(); else fertig();
+        }
+      }
+      document.getElementById("namen-los").addEventListener("click", fertig);
+      window.addEventListener("keydown", taste, true);
+    };
+
     // ---------- Unity starten ----------
     function starteSpiel() {
       zeig("lade", true);
       var buildUrl = "Build";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/df376b67db3d6a658775d44de976b0b9.data",
-        frameworkUrl: buildUrl + "/2ccce2b8a24b9983f129de32e493c1c7.framework.js",
-        codeUrl: buildUrl + "/92cfe26f170bfd4f0fe30f3f3ceefd4f.wasm",
+        dataUrl: buildUrl + "/d5ba30aa49035fb82208a325a37504d8.data",
+        frameworkUrl: buildUrl + "/bafbd6f6446d337a4edd41421a80f6af.framework.js",
+        codeUrl: buildUrl + "/bbcd90157c3ccf29a2e07ecdb6c56127.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "Weisslochhaus",
         productName: "Weisslochhaus",
-        productVersion: "0.10.1",
+        productVersion: "0.11.0",
         showBanner: function (msg, type) {
           if (type === "error") zeigeFehler(msg);
           else console.warn(msg);
@@ -342,7 +409,7 @@
       config.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
       var skript = document.createElement("script");
-      skript.src = buildUrl + "/0155b78f495e2a78b9cb043541e4f210.loader.js";
+      skript.src = buildUrl + "/46e9f97eaf3bcbf728ee1b3723e99d8c.loader.js";
       skript.onerror = function () { zeigeFehler("Die Spieldateien konnten nicht geladen werden. Internet prüfen und neu laden."); };
       skript.onload = function () {
         createUnityInstance(canvas, config, function (fortschritt) {
