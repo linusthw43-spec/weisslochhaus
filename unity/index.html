@@ -131,6 +131,34 @@
       #namen button { margin-top: 9px; padding: 6px 30px; font-size: 20px; }
     }
 
+    /* Zusammen spielen: Spiel eröffnen (Code zeigen) oder beitreten (Code eintippen) */
+    #netz { z-index: 26; background: rgba(10, 9, 7, 0.82); }
+    #netz h1 { font-size: 30px; }
+    #netz .knoepfe { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+    #netz button {
+      margin-top: 14px; padding: 9px 26px; border: 0; font-family: "Dick", sans-serif; font-style: italic; font-size: 22px;
+      text-transform: uppercase; background: var(--akzent); color: #0b0b0c; transform: skewX(-10deg); cursor: pointer; touch-action: manipulation;
+    }
+    #netz button.leise { background: #3a3a3e; color: #fff; }
+    #netz button:disabled { opacity: 0.45; }
+    #netz-code { font-family: "Dick", sans-serif; font-size: 64px; letter-spacing: 10px; line-height: 1; margin: 12px 0 2px; color: var(--akzent); -webkit-user-select: text; user-select: text; }
+    #netz-feld {
+      width: 190px; box-sizing: border-box; padding: 6px 10px; margin-top: 12px; font-family: "Dick", sans-serif; font-style: italic; font-size: 44px;
+      letter-spacing: 8px; text-align: center; text-transform: uppercase; color: #fff; background: #1d1d20; border: 2px solid #55555a; border-radius: 3px;
+      outline: none; -webkit-user-select: text; user-select: text;
+    }
+    #netz-feld:focus { border-color: var(--akzent); }
+    #netz .teil { display: none; flex-direction: column; align-items: center; }
+    #netz .teil.an { display: flex; }
+    #netz .klein { max-width: min(80vw, 430px); }
+    @media (orientation: landscape) and (max-height: 430px) {
+      #netz h1 { font-size: 22px; }
+      #netz-code { font-size: 46px; margin: 6px 0 0; }
+      #netz-feld { font-size: 32px; margin-top: 6px; }
+      #netz button { margin-top: 8px; padding: 6px 20px; font-size: 19px; }
+      #netz .klein { font-size: 13px; margin-top: 4px; }
+    }
+
     /* Hinweis: Handy quer halten */
     #dreh { z-index: 15; background: rgba(10, 9, 7, 0.94); }
     #dreh .kasten { animation-name: rein-rechts; }
@@ -183,8 +211,29 @@
       <div><label for="name-f1">Freund oder Freundin 1</label><input id="name-f1" maxlength="14" autocomplete="off" autocapitalize="words" enterkeyhint="next"></div>
       <div><label for="name-f2">Freund oder Freundin 2</label><input id="name-f2" maxlength="14" autocomplete="off" autocapitalize="words" enterkeyhint="done"></div>
     </div>
-    <p class="klein">Die Namen bleiben nur auf diesem Gerät.</p>
+    <p class="klein">Die Namen bleiben auf diesem Gerät. Nur beim Zusammenspielen sehen die anderen deinen Vornamen.</p>
     <button id="namen-los">Los</button>
+  </div></div>
+
+  <div id="netz" class="schicht"><div class="kasten">
+    <h1>Zusammen spielen</h1>
+    <div id="netz-wahl" class="teil an">
+      <p class="klein">Ihr müsst im selben WLAN sein. Einer eröffnet das Spiel, die anderen tippen seinen Code ein.</p>
+      <div class="knoepfe"><button id="netz-auf">Spiel eröffnen</button><button id="netz-bei">Beitreten</button></div>
+      <p class="klein">Zum Verbinden wird kurz der Dienst PeerJS benutzt. Deine Mitspieler sehen deinen Vornamen.</p>
+    </div>
+    <div id="netz-gast" class="teil">
+      <p class="klein">Code vom Gastgeber:</p>
+      <input id="netz-feld" maxlength="4" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" enterkeyhint="go">
+      <div class="knoepfe"><button id="netz-los">Verbinden</button></div>
+    </div>
+    <div id="netz-wirt" class="teil">
+      <p class="klein">Dein Code:</p>
+      <div id="netz-code">····</div>
+      <div class="knoepfe"><button id="netz-start">Los</button></div>
+    </div>
+    <p class="klein" id="netz-stand"></p>
+    <div class="knoepfe"><button id="netz-zu" class="leise">Zurück</button></div>
   </div></div>
 
   <div id="film" class="schicht">
@@ -202,7 +251,7 @@
   <div id="stand"></div>
 
   <script>
-    var BUILD = "0.51.0 · 26.11.2026 16:48";
+    var BUILD = "0.52.0 · 26.11.2026 18:00";
     var PIN_HASH = "0f9305fb9daaca6e97608d3bdcf8961b59b080bdffe35613e1deade56823785f";
     var MERKER = "wlh_frei";
     var mobil = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
@@ -387,19 +436,245 @@
       window.addEventListener("keydown", taste, true);
     };
 
+    // ---------- Zusammen spielen ----------
+    // Bis zu vier Spieler im selben WLAN. Einer ist Gastgeber: Er bekommt einen Code aus vier Buchstaben, die anderen
+    // tippen ihn ein. Zusammengebracht werden die Geräte über den freien Vermittlungs-Dienst von PeerJS
+    // (nur zum Verbinden: wer ist wer). Danach reden die Browser direkt miteinander (WebRTC-Datenkanal, ohne
+    // STUN-Server – deshalb nur im selben Netz). Die Gäste hängen alle am Gastgeber, er reicht ihre Nachrichten weiter.
+    // Das Spiel (Skripte/Netz.cs) schickt und bekommt nur kurze Textzeilen.
+    window.wlhNetz = (function () {
+      // Achtung: Der öffentliche Dienst prüft jede Nachricht streng und schließt sonst sofort die Leitung. Ein Angebot
+      // (OFFER) braucht genau die Felder des echten PeerJS-Programms (sdp, type, connectionId, label, reliable,
+      // serialization) und eine echte Verbindungsbeschreibung; eine Antwort (ANSWER) nur sdp, type, connectionId.
+      var VERMITTLER = "wss://0.peerjs.com/peerjs?key=peerjs&version=1.5.4";
+      var VOR = "weisslochhaus-", BUCHSTABEN = "ABCDEFGHJKLMNPQRSTUVWXYZ", KLEIN = "abcdefghijklmnopqrstuvwxyz0123456789";
+      var sockel = null, herz = null, rolle = "", code = "", wartet = null, offen = false, drin = false;
+      var leitungen = {};        // Gastgeber: Platz 1..3 -> { pc, kanal }
+      var zumWirt = null;        // Gast: { pc, kanal }
+
+      function anSpiel(was, text) {
+        if (window.unityInstanz) window.unityInstanz.SendMessage("Netz", was, String(text == null ? "" : text));
+      }
+      function zufall(n, zeichen) {
+        var z = new Uint8Array(n), aus = "";
+        crypto.getRandomValues(z);
+        for (var i = 0; i < n; i++) aus += zeichen[z[i] % zeichen.length];
+        return aus;
+      }
+      function el(id) { return document.getElementById(id); }
+      function stand(text, schlimm) { el("netz-stand").textContent = text || ""; el("netz-stand").style.color = schlimm ? "#ff7a66" : ""; }
+      function zeigTeil(welcher) {
+        ["netz-wahl", "netz-gast", "netz-wirt"].forEach(function (id) { el(id).classList.toggle("an", id === welcher); });
+      }
+
+      function schliesseVermittler() {
+        if (herz) { clearInterval(herz); herz = null; }
+        if (sockel) { try { sockel.onclose = null; sockel.close(); } catch (e) {} sockel = null; }
+      }
+      function verbindeVermittler(id, wennOffen, wennNachricht) {
+        schliesseVermittler();
+        var s = new WebSocket(VERMITTLER + "&id=" + encodeURIComponent(id) + "&token=" + zufall(12, KLEIN));
+        sockel = s;
+        s.onmessage = function (e) {
+          var m;
+          try { m = JSON.parse(e.data); } catch (x) { return; }
+          if (m.type === "OPEN") wennOffen(); else wennNachricht(m);
+        };
+        s.onerror = function () { if (!drin) stand("Der Vermittlungs-Dienst ist nicht erreichbar. Internet prüfen und noch einmal versuchen.", true); };
+        s.onclose = function () { if (sockel === s) { sockel = null; if (rolle === "wirt" && offen) stand("Der Code gilt nicht mehr. Wer schon drin ist, bleibt verbunden."); } };
+        herz = setInterval(function () { if (s.readyState === 1) s.send(JSON.stringify({ type: "HEARTBEAT" })); }, 5000);
+      }
+      function warteAufAdressen(pc) {
+        return new Promise(function (ok) {
+          if (pc.iceGatheringState === "complete") { ok(); return; }
+          var t = setTimeout(ok, 2500);
+          pc.addEventListener("icegatheringstatechange", function () {
+            if (pc.iceGatheringState === "complete") { clearTimeout(t); ok(); }
+          });
+        });
+      }
+
+      // ---- Gastgeber
+      function eroeffne(versuch) {
+        trenne();
+        rolle = "wirt";
+        code = zufall(4, BUCHSTABEN);
+        zeigTeil("netz-wirt");
+        el("netz-code").textContent = "····";
+        el("netz-start").disabled = true;
+        stand("Hole einen Code …");
+        verbindeVermittler(VOR + code, function () {
+          offen = true;
+          el("netz-code").textContent = code;
+          el("netz-start").disabled = false;
+          stand("Sag den anderen diesen Code. Du kannst schon loslegen, sie kommen dann dazu.");
+          anSpiel("NetzBereit", code);
+        }, function (m) {
+          if (m.type === "ID-TAKEN") { if ((versuch || 0) < 6) eroeffne((versuch || 0) + 1); else stand("Kein freier Code gefunden. Bitte noch einmal versuchen.", true); }
+          else if (m.type === "OFFER" && m.payload && m.payload.sdp) nimmAn(m.src, m.payload.sdp);
+          else if (m.type === "ERROR") stand("Der Vermittlungs-Dienst meldet einen Fehler. Bitte noch einmal versuchen.", true);
+        });
+      }
+      function nimmAn(von, angebot) {
+        var platz = 0;
+        for (var i = 1; i <= 3; i++) if (!leitungen[i]) { platz = i; break; }
+        if (!platz) return;      // voll (vier Spieler)
+        var pc = new RTCPeerConnection({ iceServers: [] });
+        var l = { pc: pc, kanal: null };
+        leitungen[platz] = l;
+        pc.ondatachannel = function (e) {
+          l.kanal = e.channel;
+          l.kanal.onopen = function () {
+            l.kanal.send("W|" + platz);
+            anSpiel("NetzNeu", platz);
+            if (!drin) stand("Verbunden: " + Object.keys(leitungen).length + ". Drück Los, wenn ihr anfangen wollt.");
+          };
+          l.kanal.onmessage = function (n) {
+            // an die anderen Gäste weiterreichen und ans eigene Spiel geben
+            for (var k in leitungen)
+              if (+k !== platz && leitungen[k].kanal && leitungen[k].kanal.readyState === "open") leitungen[k].kanal.send(n.data);
+            anSpiel("NetzEmpfang", n.data);
+          };
+          l.kanal.onclose = function () { weg(platz); };
+          if (l.kanal.readyState === "open") l.kanal.onopen();
+        };
+        pc.onconnectionstatechange = function () { if (pc.connectionState === "failed" || pc.connectionState === "closed") weg(platz); };
+        pc.setRemoteDescription(angebot)
+          .then(function () { return pc.createAnswer(); })
+          .then(function (antwort) { return pc.setLocalDescription(antwort); })
+          .then(function () { return warteAufAdressen(pc); })
+          .then(function () {
+            if (sockel && sockel.readyState === 1)
+              sockel.send(JSON.stringify({ type: "ANSWER", dst: von, payload: { sdp: pc.localDescription, type: "data", connectionId: "dc_wlh" } }));
+          })
+          .catch(function () { weg(platz); });
+      }
+      function weg(platz) {
+        var l = leitungen[platz];
+        if (!l) return;
+        delete leitungen[platz];
+        try { if (l.kanal) { l.kanal.onclose = null; l.kanal.close(); } l.pc.close(); } catch (e) {}
+        sende("X|" + platz);
+        anSpiel("NetzWeg", platz);
+      }
+
+      // ---- Gast
+      function tritBei(eingabe) {
+        trenne();
+        code = String(eingabe || "").toUpperCase().replace(/[^A-Z]/g, "");
+        if (code.length !== 4) { stand("Der Code hat vier Buchstaben.", true); return; }
+        rolle = "gast";
+        el("netz-los").disabled = true;
+        stand("Verbinde …");
+        var pc = new RTCPeerConnection({ iceServers: [] });
+        var kanal = pc.createDataChannel("wlh");
+        zumWirt = { pc: pc, kanal: kanal };
+        kanal.onmessage = function (n) {
+          if (!drin && n.data.indexOf("W|") === 0) {
+            drin = true;
+            clearTimeout(wartet);
+            schliesseVermittler();
+            schliesseFenster();
+            anSpiel("NetzDrin", n.data.substring(2) + "|" + code);
+            return;
+          }
+          anSpiel("NetzEmpfang", n.data);
+        };
+        kanal.onclose = function () { if (zumWirt && zumWirt.kanal === kanal) { var war = drin; trenne(); if (war) anSpiel("NetzGetrennt", ""); } };
+        function fehlgeschlagen(text) {
+          if (drin || rolle !== "gast") return;
+          trenne();
+          el("netz-los").disabled = false;
+          stand(text, true);
+        }
+        pc.onconnectionstatechange = function () {
+          if (pc.connectionState === "failed") fehlgeschlagen("Die Geräte finden sich nicht. Seid ihr im selben WLAN? (Gäste-WLAN geht oft nicht.)");
+        };
+        wartet = setTimeout(function () { fehlgeschlagen("Kein Spiel mit diesem Code gefunden. Stimmt der Code, und seid ihr im selben WLAN?"); }, 15000);
+        verbindeVermittler(VOR + "g-" + zufall(10, KLEIN), function () {
+          pc.createOffer()
+            .then(function (angebot) { return pc.setLocalDescription(angebot); })
+            .then(function () { return warteAufAdressen(pc); })
+            .then(function () {
+              if (sockel && sockel.readyState === 1)
+                sockel.send(JSON.stringify({ type: "OFFER", dst: VOR + code, payload: { sdp: pc.localDescription, type: "data", connectionId: "dc_wlh", label: "dc_wlh", reliable: true, serialization: "binary" } }));
+            })
+            .catch(function () { fehlgeschlagen("Die Verbindung ließ sich nicht aufbauen."); });
+        }, function (m) {
+          if (m.type === "ANSWER" && m.payload && m.payload.sdp) pc.setRemoteDescription(m.payload.sdp).catch(function () {});
+          else if (m.type === "EXPIRE" || m.type === "ERROR") fehlgeschlagen("Kein Spiel mit diesem Code gefunden.");
+        });
+      }
+
+      function trenne() {
+        clearTimeout(wartet);
+        schliesseVermittler();
+        for (var k in leitungen) { try { leitungen[k].kanal && (leitungen[k].kanal.onclose = null, leitungen[k].kanal.close()); leitungen[k].pc.close(); } catch (e) {} }
+        leitungen = {};
+        if (zumWirt) { try { zumWirt.kanal.onclose = null; zumWirt.kanal.close(); zumWirt.pc.close(); } catch (e) {} zumWirt = null; }
+        rolle = ""; offen = false; drin = false;
+      }
+      function sende(text) {
+        if (rolle === "wirt") {
+          for (var k in leitungen) if (leitungen[k].kanal && leitungen[k].kanal.readyState === "open") leitungen[k].kanal.send(text);
+        } else if (zumWirt && zumWirt.kanal.readyState === "open") zumWirt.kanal.send(text);
+      }
+
+      // ---- Das Fenster
+      var tastenFang = null;
+      function schliesseFenster() {
+        zeig("netz", false);
+        if (tastenFang) { window.removeEventListener("keydown", tastenFang, true); tastenFang = null; }
+        el("netz-feld").blur();
+        canvas.focus();
+      }
+      function zeigeFenster() {
+        zeigTeil("netz-wahl");
+        stand("");
+        el("netz-los").disabled = false;
+        el("netz-feld").value = "";
+        zeig("netz", true);
+        try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) {}
+        tastenFang = function (e) {
+          e.stopPropagation();     // Tasten gehören jetzt dem Fenster, nicht dem Spiel
+          if (e.key === "Enter" && el("netz-gast").classList.contains("an")) tritBei(el("netz-feld").value);
+        };
+        window.addEventListener("keydown", tastenFang, true);
+      }
+      el("netz-auf").addEventListener("click", function () { eroeffne(0); });
+      el("netz-bei").addEventListener("click", function () { zeigTeil("netz-gast"); stand(""); if (!mobil) el("netz-feld").focus(); });
+      el("netz-los").addEventListener("click", function () { tritBei(el("netz-feld").value); });
+      el("netz-start").addEventListener("click", function () {
+        if (!offen) return;
+        drin = true;
+        schliesseFenster();
+        anSpiel("NetzDrin", "0|" + code);
+      });
+      el("netz-zu").addEventListener("click", function () {
+        if (!el("netz-wahl").classList.contains("an")) { trenne(); zeigTeil("netz-wahl"); stand(""); el("netz-los").disabled = false; anSpiel("NetzAus", ""); return; }
+        trenne();
+        schliesseFenster();
+        anSpiel("NetzZu", "");
+      });
+      // Seite wird geschlossen: sauber abmelden
+      window.addEventListener("pagehide", function () { trenne(); });
+
+      return { zeige: zeigeFenster, sende: sende, trenne: trenne };
+    })();
+
     // ---------- Unity starten ----------
     function starteSpiel() {
       zeig("lade", true);
       var buildUrl = "Build";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/d174f54139e2f376c7f150123b34a110.data",
-        frameworkUrl: buildUrl + "/2c6037349a7172f8b22db3a4638a6a08.framework.js",
-        codeUrl: buildUrl + "/e6e3f985c4ec02716f79de3a6982ab1f.wasm",
+        dataUrl: buildUrl + "/e779c7da8e91c92bbd6e1bf1267394f5.data",
+        frameworkUrl: buildUrl + "/a2d90e30a321bbe38c660c3f8a2ca78e.framework.js",
+        codeUrl: buildUrl + "/4b7717b64273af161176ac3ace7d21cb.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "Weisslochhaus",
         productName: "Weisslochhaus",
-        productVersion: "0.51.0",
+        productVersion: "0.52.0",
         showBanner: function (msg, type) {
           if (type === "error") zeigeFehler(msg);
           else console.warn(msg);
@@ -409,7 +684,7 @@
       config.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 
       var skript = document.createElement("script");
-      skript.src = buildUrl + "/01514bf17703bc11041ebcd340a8c5f1.loader.js";
+      skript.src = buildUrl + "/8d0b9cb935f820dc1b961f52f170c069.loader.js";
       skript.onerror = function () { zeigeFehler("Die Spieldateien konnten nicht geladen werden. Internet prüfen und neu laden."); };
       skript.onload = function () {
         createUnityInstance(canvas, config, function (fortschritt) {
