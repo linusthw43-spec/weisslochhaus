@@ -218,9 +218,9 @@
   <div id="netz" class="schicht"><div class="kasten">
     <h1>Zusammen spielen</h1>
     <div id="netz-wahl" class="teil an">
-      <p class="klein">Ihr müsst im selben WLAN sein. Einer eröffnet das Spiel, die anderen tippen seinen Code ein.</p>
+      <p class="klein" id="netz-wie">Ihr müsst im selben WLAN sein. Einer eröffnet das Spiel, die anderen tippen seinen Code ein.</p>
       <div class="knoepfe"><button id="netz-auf">Spiel eröffnen</button><button id="netz-bei">Beitreten</button></div>
-      <p class="klein">Zum Verbinden wird kurz der Dienst PeerJS benutzt. Deine Mitspieler sehen deinen Vornamen.</p>
+      <p class="klein" id="netz-dienst">Zum Verbinden wird kurz der Dienst PeerJS benutzt. Deine Mitspieler sehen deinen Vornamen.</p>
     </div>
     <div id="netz-gast" class="teil">
       <p class="klein">Code vom Gastgeber:</p>
@@ -251,7 +251,7 @@
   <div id="stand"></div>
 
   <script>
-    var BUILD = "0.52.0 · 26.11.2026 18:00";
+    var BUILD = "0.53.0 · 26.11.2026 18:50";
     var PIN_HASH = "0f9305fb9daaca6e97608d3bdcf8961b59b080bdffe35613e1deade56823785f";
     var MERKER = "wlh_frei";
     var mobil = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
@@ -494,8 +494,88 @@
         });
       }
 
+      // ---- Eigener Server (tools/netz_server.py): Kommt die Seite von dort, laufen alle Nachrichten über ihn.
+      // Dann müssen sich die Geräte nicht gegenseitig finden (das klappt zwischen Handys oft nicht), und PeerJS wird
+      // nicht gebraucht. Die Seite erkennt den Server an der Adresse "netz-info".
+      var eigen = false, ws = null;
+      fetch("netz-info", { cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          eigen = !!(j && j.weisslochhaus);
+          if (!eigen) return;
+          el("netz-wie").textContent = "Einer eröffnet das Spiel, die anderen tippen seinen Code ein.";
+          el("netz-dienst").textContent = "Ihr seid über den eigenen Server verbunden. Deine Mitspieler sehen deinen Vornamen.";
+        })
+        .catch(function () {});
+      function serverAdresse() {
+        return (location.protocol === "https:" ? "wss://" : "ws://") + location.host + location.pathname.replace(/[^\/]*$/, "") + "netz";
+      }
+      function eroeffneServer() {
+        trenne();
+        rolle = "wirt";
+        zeigTeil("netz-wirt");
+        el("netz-code").textContent = "····";
+        el("netz-start").disabled = true;
+        stand("Hole einen Code …");
+        var s = ws = new WebSocket(serverAdresse());
+        s.onopen = function () { s.send("H"); };
+        s.onmessage = function (e) {
+          var d = String(e.data);
+          if (d.indexOf("C|") === 0) {
+            code = d.substring(2);
+            offen = true;
+            el("netz-code").textContent = code;
+            el("netz-start").disabled = false;
+            stand("Sag den anderen diesen Code. Du kannst schon loslegen, sie kommen dann dazu.");
+            anSpiel("NetzBereit", code);
+          }
+          else if (d.indexOf("+|") === 0) { anSpiel("NetzNeu", d.substring(2)); if (!drin) stand("Jemand ist beigetreten. Drück Los, wenn ihr anfangen wollt."); }
+          else if (d.indexOf("-|") === 0) anSpiel("NetzWeg", d.substring(2));
+          else if (d.indexOf("F|") === 0) stand(d.substring(2), true);
+          else anSpiel("NetzEmpfang", d);
+        };
+        s.onclose = function () {
+          if (ws !== s) return;
+          var war = drin;
+          trenne();
+          if (war) anSpiel("NetzGetrennt", "");
+          else stand("Der Server ist nicht erreichbar. Bitte noch einmal versuchen.", true);
+        };
+      }
+      function tritBeiServer() {
+        rolle = "gast";
+        el("netz-los").disabled = true;
+        stand("Verbinde …");
+        var s = ws = new WebSocket(serverAdresse());
+        function fehlgeschlagen(text) {
+          if (drin || ws !== s) return;
+          trenne();
+          el("netz-los").disabled = false;
+          stand(text, true);
+        }
+        s.onopen = function () { s.send("J|" + code); };
+        s.onmessage = function (e) {
+          var d = String(e.data);
+          if (!drin && d.indexOf("W|") === 0) {
+            drin = true;
+            schliesseFenster();
+            anSpiel("NetzDrin", d.substring(2) + "|" + code);
+          }
+          else if (d.indexOf("F|") === 0) fehlgeschlagen(d.substring(2));
+          else if (d === "Z") { var war = drin; trenne(); if (war) anSpiel("NetzGetrennt", ""); }
+          else anSpiel("NetzEmpfang", d);
+        };
+        s.onclose = function () {
+          if (ws !== s) return;
+          var war = drin;
+          if (war) { trenne(); anSpiel("NetzGetrennt", ""); }
+          else fehlgeschlagen("Der Server ist nicht erreichbar. Bitte noch einmal versuchen.");
+        };
+      }
+
       // ---- Gastgeber
       function eroeffne(versuch) {
+        if (eigen) { eroeffneServer(); return; }
         trenne();
         rolle = "wirt";
         code = zufall(4, BUCHSTABEN);
@@ -563,6 +643,7 @@
         trenne();
         code = String(eingabe || "").toUpperCase().replace(/[^A-Z]/g, "");
         if (code.length !== 4) { stand("Der Code hat vier Buchstaben.", true); return; }
+        if (eigen) { tritBeiServer(); return; }
         rolle = "gast";
         el("netz-los").disabled = true;
         stand("Verbinde …");
@@ -608,6 +689,7 @@
 
       function trenne() {
         clearTimeout(wartet);
+        if (ws) { var alt = ws; ws = null; try { alt.close(); } catch (e) {} }
         schliesseVermittler();
         for (var k in leitungen) { try { leitungen[k].kanal && (leitungen[k].kanal.onclose = null, leitungen[k].kanal.close()); leitungen[k].pc.close(); } catch (e) {} }
         leitungen = {};
@@ -615,6 +697,7 @@
         rolle = ""; offen = false; drin = false;
       }
       function sende(text) {
+        if (ws) { if (ws.readyState === 1) ws.send(text); return; }
         if (rolle === "wirt") {
           for (var k in leitungen) if (leitungen[k].kanal && leitungen[k].kanal.readyState === "open") leitungen[k].kanal.send(text);
         } else if (zumWirt && zumWirt.kanal.readyState === "open") zumWirt.kanal.send(text);
@@ -668,13 +751,13 @@
       var buildUrl = "Build";
       var config = {
         arguments: [],
-        dataUrl: buildUrl + "/e779c7da8e91c92bbd6e1bf1267394f5.data",
+        dataUrl: buildUrl + "/0725664c69b7334f6b6e3c0ea338a808.data",
         frameworkUrl: buildUrl + "/a2d90e30a321bbe38c660c3f8a2ca78e.framework.js",
         codeUrl: buildUrl + "/4b7717b64273af161176ac3ace7d21cb.wasm",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "Weisslochhaus",
         productName: "Weisslochhaus",
-        productVersion: "0.52.0",
+        productVersion: "0.53.0",
         showBanner: function (msg, type) {
           if (type === "error") zeigeFehler(msg);
           else console.warn(msg);
